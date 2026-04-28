@@ -144,7 +144,7 @@ The IDE auto-detects the best storage root, preferring the external SD card (`Ca
 J2ME IDE is focused on writing and organizing source code on-device. To build a runnable `.jar` you have two options:
 
 ### Option A — Compile on-device with J2ME SDK Mobile
-If you have [J2ME SDK Mobile](https://ozuffy.blogspot.com) installed on your phone alongside this IDE:
+If you have [J2ME SDK Mobile](https://david2me.free.nf/app.php?file=1777404918_4dd35f2ba87e5516.jar) installed on your phone alongside this IDE:
 
 1. Write your code in J2ME IDE
 2. Save the project — files are stored in `j2meprojects/` on your SD card
