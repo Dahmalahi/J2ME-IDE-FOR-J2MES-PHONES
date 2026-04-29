@@ -5,11 +5,17 @@ import java.util.Vector;
 
 /**
  * J2MEIDE.java - Main MIDlet
- * Full J2ME IDE  v1.1
+ * Full J2ME IDE  v1.2 PIXEL EDITION
  * Vendor  : DASH ANIMATION V2
  * YouTube : https://youtube.com/@dash______animationv2
  * GitHub  : https://github.com/Dahmalahi/
  * CLDC 1.1 / MIDP 2.0
+ *
+ * v1.2 Changes:
+ *  - Rename Project exposed in Open Project menu
+ *  - Version strings updated to 1.2
+ *  - buildHeader updated to v1.2
+ *  - Welcome screen updated with new key map
  */
 public class J2MEIDE extends MIDlet
         implements CommandListener {
@@ -74,7 +80,12 @@ public class J2MEIDE extends MIDlet
         "Vibrate Device",
         "DateField Picker",
         "ChoiceGroup Example",
-        "Ticker Scroller"
+        "Ticker Scroller",
+        "Pixel Canvas Draw",
+        "Highscore RMS",
+        "Splash + Main Form",
+        "Timer Countdown",
+        "Multi-Screen Nav"
     };
 
     // --- Settings ---
@@ -86,11 +97,13 @@ public class J2MEIDE extends MIDlet
     private int    settingWordWrap    = 1;
     private int    settingBracket     = 0;
     private int    settingScrollSpeed = 0;
+    private int    settingScanlines   = 0; // 0=on, 1=off
+    private int    settingBlockCursor = 0; // 0=block, 1=line
     private int    settingHints       = 0; // 0=On,1=Off
     private String settingDevName     = "";
 
     // --- RMS keys ---
-    private static final String RMS_SETTINGS = "IDESettings3";
+    private static final String RMS_SETTINGS = "IDESettings4";
     private static final String RMS_FIRSTRUN = "IDEFirstRun";
     private static final String RMS_DEVNAME  = "IDEDevName";
     private static final String RMS_RECENT   = "IDERecent";
@@ -133,6 +146,8 @@ public class J2MEIDE extends MIDlet
 
     private void applySettings() {
         editor.setHintEnabled(settingHints == 0);
+        editor.setScanlines(settingScanlines == 0);
+        editor.setBlockCursor(settingBlockCursor == 0);
     }
 
     // =============================================
@@ -165,7 +180,7 @@ public class J2MEIDE extends MIDlet
         Form f = new Form("Welcome to J2ME IDE!");
 
         f.append(new StringItem("",
-            "J2ME IDE v1.0\n" +
+            "J2ME IDE v1.2\n" +
             "by DASH ANIMATION V2\n\n"));
 
         f.append(new StringItem(
@@ -192,10 +207,12 @@ public class J2MEIDE extends MIDlet
 
         f.append(new StringItem("EDITOR KEYS","\n"));
         f.append(new StringItem("",
+            " 4  = Undo (NEW!)\n" +
             " 5  = Open TextBox editor\n" +
             " 0  = New line\n" +
             " 1  = Jump to line start\n" +
             " 3  = Jump to line end\n" +
+            " 6  = Toggle // comment\n" +
             " 7  = Page up\n" +
             " 9  = Page down\n" +
             " 2  = Move line up\n" +
@@ -278,7 +295,7 @@ public class J2MEIDE extends MIDlet
 
     private void buildMainMenu() {
         mainMenu = new List(
-            "J2ME IDE | DASH ANIMATION V2",
+            "J2ME IDE v1.2 | DASH ANIMATION V2",
             List.IMPLICIT);
         for (int i = 0; i < MENU_ITEMS.length; i++) {
             mainMenu.append(MENU_ITEMS[i], null);
@@ -344,26 +361,149 @@ public class J2MEIDE extends MIDlet
         }
 
         final String[] proj = projects;
-        Command back = new Command(
-            "Back", Command.BACK, 2);
-        Command ok   = new Command(
-            "Open", Command.OK,   1);
+        Command back   = new Command(
+            "Back",   Command.BACK, 2);
+        Command ok     = new Command(
+            "Open",   Command.OK,   1);
+        Command delete = new Command(
+            "Delete", Command.ITEM, 3);
+        Command rename = new Command(
+            "Rename", Command.ITEM, 4);
         list.addCommand(back);
         list.addCommand(ok);
-        list.setCommandListener(new CommandListener() {
-            public void commandAction(
-                    Command c, Displayable d) {
-                if (c.getCommandType() == Command.BACK) {
-                    display.setCurrent(mainMenu);
-                    return;
-                }
-                int idx = list.getSelectedIndex();
-                if (idx >= 0 && idx < proj.length) {
+        list.addCommand(delete);
+        list.addCommand(rename);
+        list.setCommandListener(
+            new CommandListener() {
+                public void commandAction(
+                        Command c, Displayable d) {
+                    if (c.getCommandType() ==
+                            Command.BACK) {
+                        display.setCurrent(mainMenu);
+                        return;
+                    }
+                    int idx =
+                        list.getSelectedIndex();
+                    if (idx < 0 ||
+                        idx >= proj.length) return;
+                    if (c.getLabel()
+                            .equals("Delete")) {
+                        confirmDeleteProject(
+                            proj[idx]);
+                        return;
+                    }
+                    if (c.getLabel()
+                            .equals("Rename")) {
+                        showRenameProjectDialog(
+                            proj[idx]);
+                        return;
+                    }
                     openProject(proj[idx]);
                 }
-            }
-        });
+            });
         display.setCurrent(list);
+    }
+
+    private void confirmDeleteProject(
+            final String name) {
+        Alert a = new Alert("Delete Project",
+            "Delete project \"" + name +
+            "\"?\nThis cannot be undone.",
+            null, AlertType.WARNING);
+        a.setTimeout(Alert.FOREVER);
+        Command yes = new Command(
+            "Delete", Command.OK,   1);
+        Command no  = new Command(
+            "Cancel", Command.BACK, 2);
+        a.addCommand(yes);
+        a.addCommand(no);
+        a.setCommandListener(
+            new CommandListener() {
+                public void commandAction(
+                        Command c, Displayable d) {
+                    if (c.getLabel()
+                            .equals("Delete")) {
+                        boolean ok =
+                            fm.deleteProject(name);
+                        showAlert(
+                            ok ? "Deleted" : "Error",
+                            ok ? "Project \"" + name +
+                                 "\" deleted." :
+                                 "Delete failed.",
+                            ok
+                            ? AlertType.CONFIRMATION
+                            : AlertType.ERROR,
+                            mainMenu);
+                    } else {
+                        showOpenProject();
+                    }
+                }
+            });
+        display.setCurrent(a);
+    }
+
+    // v1.2: Rename Project dialog from Open Project menu
+    private void showRenameProjectDialog(
+            final String oldName) {
+        final TextField tf = new TextField(
+            "New Name:", oldName, 40, TextField.ANY);
+        final Form form = new Form("Rename Project");
+        form.append(new StringItem("Current:",
+            " " + oldName + "\n\n"));
+        form.append(tf);
+        form.append(new StringItem("",
+            "\nRenames the project folder\n" +
+            "and re-creates the main .java\n" +
+            "file with the new name.\n"));
+        Command ok   = new Command(
+            "Rename", Command.OK,   1);
+        Command back = new Command(
+            "Back",   Command.BACK, 2);
+        form.addCommand(ok);
+        form.addCommand(back);
+        form.setCommandListener(
+            new CommandListener() {
+                public void commandAction(
+                        Command c, Displayable d) {
+                    if (c.getCommandType() ==
+                            Command.OK) {
+                        String newName =
+                            tf.getString().trim();
+                        if (newName.length() > 0) {
+                            newName =
+                                sanitizeName(newName);
+                            boolean ok =
+                                fm.renameProject(
+                                    oldName, newName);
+                            // If editor has this
+                            // project open, update name
+                            String curFile =
+                                editor.getFileName();
+                            if (curFile.equals(
+                                    oldName + ".java")) {
+                                editor.setFileName(
+                                    newName + ".java");
+                            }
+                            Alert a = new Alert(
+                                ok ? "Renamed" : "Error",
+                                ok ? "Renamed to:\n"
+                                     + newName :
+                                     "Rename failed.\n" +
+                                     "Check storage.",
+                                null,
+                                ok
+                                ? AlertType.CONFIRMATION
+                                : AlertType.ERROR);
+                            a.setTimeout(2000);
+                            display.setCurrent(
+                                a, mainMenu);
+                            return;
+                        }
+                    }
+                    showOpenProject();
+                }
+            });
+        display.setCurrent(form);
     }
 
     private void openProject(String name) {
@@ -551,7 +691,7 @@ public class J2MEIDE extends MIDlet
             "/**\n" +
             " * " + name + ".java\n" +
             " * Author  : " + dev + "\n" +
-            " * Created : J2ME IDE v1.0\n" +
+            " * Created : J2ME IDE v1.2\n" +
             " * Vendor  : DASH ANIMATION V2\n" +
             " * Platform: MIDP 2.0 / CLDC 1.1\n" +
             " */\n";
@@ -1383,8 +1523,8 @@ public class J2MEIDE extends MIDlet
         Form about = new Form("About J2ME IDE");
 
         about.append(new StringItem("",
-            "J2ME IDE v1.1\n" +
-            "=============\n\n"));
+            "J2ME IDE v1.2 PIXEL EDITION\n" +
+            "============================\n\n"));
 
         about.append(new StringItem(
             "Vendor:", " DASH ANIMATION V2\n\n"));
@@ -1459,9 +1599,19 @@ public class J2MEIDE extends MIDlet
             " patterns\n\n"));
 
         about.append(new StringItem(
-            "Version:", " 1.1.0\n"));
+            "Version:", " 1.2.0 PIXEL\n"));
         about.append(new StringItem(
             "License:", " Free to use\n\n"));
+        about.append(new StringItem(
+            "v1.2 NEW:", "\n" +
+            " Undo (key 4, up to 10 states)\n" +
+            " Copy / Paste lines\n" +
+            " Find & Replace\n" +
+            " Block comment (/* */)\n" +
+            " Delete current line\n" +
+            " Rename Project in Open menu\n" +
+            " Generate Test MIDlet\n" +
+            " 16 new error patterns\n\n"));
 
         Command back = new Command(
             "Back", Command.BACK, 1);
@@ -1594,6 +1744,28 @@ public class J2MEIDE extends MIDlet
             settingScrollSpeed, true);
         form.append(cgScroll);
 
+        // ---- PIXEL EDITION OPTIONS ----
+        form.append(new StringItem(
+            "-- PIXEL EDITION --", "\n"));
+
+        final ChoiceGroup cgScanlines =
+            new ChoiceGroup("CRT Scanlines",
+                ChoiceGroup.EXCLUSIVE);
+        cgScanlines.append("On  (retro CRT look)", null);
+        cgScanlines.append("Off (clean)",          null);
+        cgScanlines.setSelectedIndex(
+            settingScanlines, true);
+        form.append(cgScanlines);
+
+        final ChoiceGroup cgCursor =
+            new ChoiceGroup("Cursor Style",
+                ChoiceGroup.EXCLUSIVE);
+        cgCursor.append("Block (pixel)",  null);
+        cgCursor.append("Line  (classic)",null);
+        cgCursor.setSelectedIndex(
+            settingBlockCursor, true);
+        form.append(cgCursor);
+
         // Storage info
         form.append(new StringItem(
             "Storage Root:",
@@ -1608,9 +1780,10 @@ public class J2MEIDE extends MIDlet
             "Key Reference:", "\n" +
             " 5=TextBox  0=NewLine\n" +
             " 1=Home     3=End\n" +
-            " 7=PageUp   9=PageDown\n" +
-            " 2=LineUp   8=LineDown\n" +
-            " *=Hints    #=FindNext\n"));
+            " 6=Comment  7=PageUp\n" +
+            " 9=PageDown 2=LineUp\n" +
+            " 8=LineDown *=Hints\n" +
+            " #=FindNext\n"));
 
         Command cmdSave  = new Command(
             "Save",  Command.OK,   1);
@@ -1646,6 +1819,10 @@ public class J2MEIDE extends MIDlet
                         cgBracket.getSelectedIndex();
                     settingScrollSpeed =
                         cgScroll.getSelectedIndex();
+                    settingScanlines =
+                        cgScanlines.getSelectedIndex();
+                    settingBlockCursor =
+                        cgCursor.getSelectedIndex();
                     saveSettingsToRMS();
                     saveDevName();
                     applySettings();
@@ -1684,7 +1861,9 @@ public class J2MEIDE extends MIDlet
             sb.append(settingWordWrap);    sb.append(',');
             sb.append(settingBracket);     sb.append(',');
             sb.append(settingScrollSpeed); sb.append(',');
-            sb.append(settingHints);
+            sb.append(settingHints);       sb.append(',');
+            sb.append(settingScanlines);   sb.append(',');
+            sb.append(settingBlockCursor);
             byte[] b = sb.toString().getBytes();
             if (rs.getNumRecords() == 0)
                 rs.addRecord(b, 0, b.length);
@@ -1724,6 +1903,14 @@ public class J2MEIDE extends MIDlet
                 if (p.length >= 9) {
                     settingHints =
                         Integer.parseInt(p[8]);
+                }
+                if (p.length >= 10) {
+                    settingScanlines =
+                        Integer.parseInt(p[9]);
+                }
+                if (p.length >= 11) {
+                    settingBlockCursor =
+                        Integer.parseInt(p[10]);
                 }
             }
             rs.closeRecordStore();
@@ -1765,6 +1952,8 @@ public class J2MEIDE extends MIDlet
         settingBracket     = 0;
         settingScrollSpeed = 0;
         settingHints       = 0;
+        settingScanlines   = 0;
+        settingBlockCursor = 0;
         saveSettingsToRMS();
     }
 
@@ -1799,6 +1988,11 @@ public class J2MEIDE extends MIDlet
             case 22: return snipDateField();
             case 23: return snipChoiceGroup();
             case 24: return snipTicker();
+            case 25: return snipPixelDraw();
+            case 26: return snipHighscore();
+            case 27: return snipSplashMain();
+            case 28: return snipCountdown();
+            case 29: return snipMultiScreen();
             default: return "// snippet\n";
         }
     }
@@ -2371,6 +2565,152 @@ public class J2MEIDE extends MIDlet
             "form.setTicker(t);\n" +
             "// Or update text later:\n" +
             "t.setString(\"New message! \");\n";
+    }
+
+    private String snipPixelDraw() {
+        return
+            "// PIXEL EDITION: draw shapes\n" +
+            "protected void paint(Graphics g) {\n" +
+            "    int w = getWidth();\n" +
+            "    int h = getHeight();\n" +
+            "    // Black background\n" +
+            "    g.setColor(0x000000);\n" +
+            "    g.fillRect(0, 0, w, h);\n" +
+            "    // Neon green rect\n" +
+            "    g.setColor(0x00FF88);\n" +
+            "    g.drawRect(10, 10, 40, 40);\n" +
+            "    // Cyan circle\n" +
+            "    g.setColor(0x00FFFF);\n" +
+            "    g.drawArc(60, 10, 40, 40, 0, 360);\n" +
+            "    // Hot red filled block\n" +
+            "    g.setColor(0xFF5555);\n" +
+            "    g.fillRect(10, 60, 20, 20);\n" +
+            "    // Gold diagonal line\n" +
+            "    g.setColor(0xFFD700);\n" +
+            "    g.drawLine(0, 0, w, h);\n" +
+            "}\n";
+    }
+
+    private String snipHighscore() {
+        return
+            "// Save/load highscore via RMS\n" +
+            "private static final String HS\n" +
+            "    = \"highscores\";\n\n" +
+            "private void saveScore(int score) {\n" +
+            "    try {\n" +
+            "        RecordStore rs =\n" +
+            "            RecordStore\n" +
+            "            .openRecordStore(HS,true);\n" +
+            "        byte[] b =\n" +
+            "            String.valueOf(score)\n" +
+            "            .getBytes();\n" +
+            "        if(rs.getNumRecords()==0)\n" +
+            "            rs.addRecord(\n" +
+            "                b,0,b.length);\n" +
+            "        else\n" +
+            "            rs.setRecord(\n" +
+            "                1,b,0,b.length);\n" +
+            "        rs.closeRecordStore();\n" +
+            "    } catch(Exception e){}\n" +
+            "}\n\n" +
+            "private int loadScore() {\n" +
+            "    try {\n" +
+            "        RecordStore rs =\n" +
+            "            RecordStore\n" +
+            "            .openRecordStore(HS,false);\n" +
+            "        int s = 0;\n" +
+            "        if(rs.getNumRecords()>0)\n" +
+            "            s = Integer.parseInt(\n" +
+            "                new String(\n" +
+            "                rs.getRecord(1)));\n" +
+            "        rs.closeRecordStore();\n" +
+            "        return s;\n" +
+            "    } catch(Exception e){}\n" +
+            "    return 0;\n" +
+            "}\n";
+    }
+
+    private String snipSplashMain() {
+        return
+            "// Splash -> Main transition\n" +
+            "Display d =\n" +
+            "    Display.getDisplay(this);\n" +
+            "final Form main =\n" +
+            "    new Form(\"My App\");\n" +
+            "main.append(\n" +
+            "    new StringItem(\"\",\n" +
+            "    \"Welcome!\\n\"));\n" +
+            "Alert splash = new Alert(\n" +
+            "    null,\n" +
+            "    \"\\n  MY APP\\n  v1.0\\n\",\n" +
+            "    null, AlertType.INFO);\n" +
+            "splash.setTimeout(2000);\n" +
+            "d.setCurrent(splash, main);\n";
+    }
+
+    private String snipCountdown() {
+        return
+            "// Countdown timer (10 sec)\n" +
+            "private int countdown = 10;\n" +
+            "private Timer tmr;\n\n" +
+            "private void startCountdown() {\n" +
+            "    tmr = new Timer();\n" +
+            "    tmr.schedule(\n" +
+            "        new TimerTask() {\n" +
+            "            public void run() {\n" +
+            "                countdown--;\n" +
+            "                repaint();\n" +
+            "                if(countdown<=0) {\n" +
+            "                    tmr.cancel();\n" +
+            "                    onTimeUp();\n" +
+            "                }\n" +
+            "            }\n" +
+            "        }, 1000, 1000);\n" +
+            "}\n\n" +
+            "private void onTimeUp() {\n" +
+            "    // time's up logic here\n" +
+            "}\n";
+    }
+
+    private String snipMultiScreen() {
+        return
+            "// Multi-screen navigation\n" +
+            "private Display display;\n" +
+            "private Form    screen1;\n" +
+            "private Form    screen2;\n" +
+            "private Command cmdNext;\n" +
+            "private Command cmdPrev;\n\n" +
+            "private void buildScreens() {\n" +
+            "    display =\n" +
+            "        Display.getDisplay(this);\n" +
+            "    screen1 =\n" +
+            "        new Form(\"Screen 1\");\n" +
+            "    screen2 =\n" +
+            "        new Form(\"Screen 2\");\n" +
+            "    cmdNext = new Command(\n" +
+            "        \"Next\",Command.OK,1);\n" +
+            "    cmdPrev = new Command(\n" +
+            "        \"Back\",Command.BACK,2);\n" +
+            "    screen1.addCommand(cmdNext);\n" +
+            "    screen2.addCommand(cmdPrev);\n" +
+            "    screen1.setCommandListener(\n" +
+            "     new CommandListener() {\n" +
+            "      public void commandAction(\n" +
+            "          Command c,Displayable d){\n" +
+            "          display.setCurrent(\n" +
+            "              screen2);\n" +
+            "      }\n" +
+            "     });\n" +
+            "    screen2.setCommandListener(\n" +
+            "     new CommandListener() {\n" +
+            "      public void commandAction(\n" +
+            "          Command c,Displayable d){\n" +
+            "          display.setCurrent(\n" +
+            "              screen1);\n" +
+            "      }\n" +
+            "     });\n" +
+            "    display.setCurrent(screen1);\n" +
+            "}\n";
     }
 
     // =============================================

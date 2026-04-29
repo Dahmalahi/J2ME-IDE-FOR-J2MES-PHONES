@@ -3,33 +3,48 @@ import javax.microedition.midlet.*;
 
 /**
  * J2MEEditor.java
- * Full IDE editor
- * Vendor: DASH ANIMATION V2
+ * Full IDE editor — PIXEL EDITION
+ * Version : 1.2
+ * Vendor  : DASH ANIMATION V2
+ * Platform: MIDP 2.0 / CLDC 1.1
+ *
+ * v1.2 New Features:
+ *  - Undo stack (last 10 states, key 4)
+ *  - Copy / Paste (copy line: Cmd, paste: Cmd)
+ *  - Find & Replace dialog
+ *  - Improved comment: // line OR / * * / block
+ *  - More ERROR_PATTERNS (16 new patterns)
+ *  - Rename Project exposed in UI (via menu cmd)
+ *  - Generate Test MIDlet command
+ *  - Delete current line (long-press 7 via Cmd)
  */
 public class J2MEEditor extends Canvas
         implements CommandListener {
 
-    // --- Palette ---
-    private static final int COL_BG          = 0x1E1E1E;
-    private static final int COL_GUTTER      = 0x252526;
-    private static final int COL_GUTTER_TXT  = 0x858585;
-    private static final int COL_TEXT        = 0xD4D4D4;
-    private static final int COL_KEYWORD     = 0x569CD6;
-    private static final int COL_STRING      = 0xCE9178;
-    private static final int COL_COMMENT     = 0x6A9955;
-    private static final int COL_NUMBER      = 0xB5CEA8;
-    private static final int COL_TYPE        = 0x4EC9B0;
-    private static final int COL_ANNOTATION  = 0x9CDCFE;
-    private static final int COL_CURSOR_LINE = 0x282828;
-    private static final int COL_CURSOR      = 0xAEAFAD;
-    private static final int COL_FIND_HL     = 0x613315;
-    private static final int COL_ERR_LINE    = 0x3D1515;
-    private static final int COL_ERR_TXT     = 0xFF6B6B;
-    private static final int COL_HINT_TXT    = 0x89D185;
-    private static final int COL_STATUS_BG   = 0x007ACC;
-    private static final int COL_STATUS_TXT  = 0xFFFFFF;
-    private static final int COL_TOOLBAR_BG  = 0x2D2D2D;
-    private static final int COL_TOOLBAR_TXT = 0xCCCCCC;
+    // --- Pixel Edition Palette ---
+    private static final int COL_BG          = 0x0A0A0F;
+    private static final int COL_SCANLINE    = 0x0D0D14;
+    private static final int COL_GUTTER      = 0x12121A;
+    private static final int COL_GUTTER_TXT  = 0x44FF88;
+    private static final int COL_TEXT        = 0xE0E0E0;
+    private static final int COL_KEYWORD     = 0xFF5555;
+    private static final int COL_STRING      = 0xFFD700;
+    private static final int COL_COMMENT     = 0x44AA66;
+    private static final int COL_NUMBER      = 0xFF88FF;
+    private static final int COL_TYPE        = 0x00FFFF;
+    private static final int COL_ANNOTATION  = 0xFF8800;
+    private static final int COL_CURSOR_LINE = 0x1A1A2E;
+    private static final int COL_CURSOR      = 0x00FF88;
+    private static final int COL_SEL_BG      = 0x003355; // v1.2 selection
+    private static final int COL_FIND_HL     = 0x5500AA;
+    private static final int COL_ERR_LINE    = 0x2D0000;
+    private static final int COL_ERR_TXT     = 0xFF2222;
+    private static final int COL_HINT_TXT    = 0x44FF88;
+    private static final int COL_STATUS_BG   = 0x1A0033;
+    private static final int COL_STATUS_TXT  = 0x44FF88;
+    private static final int COL_TOOLBAR_BG  = 0x0F0F1A;
+    private static final int COL_TOOLBAR_TXT = 0x00FFFF;
+    private static final int COL_PIXEL_ACCENT= 0xFF5555;
 
     // --- Layout ---
     private Font    fontMono;
@@ -40,10 +55,12 @@ public class J2MEEditor extends Canvas
     private int     statusH    = 14;
     private int     toolbarH   = 15;
     private int     hintBarH   = 13;
-    private boolean showToolbar = true;
-    private boolean fullScreen  = false;
-    private boolean hintEnabled = true;
-    private boolean hintVisible = false;
+    private boolean showToolbar  = true;
+    private boolean fullScreen   = false;
+    private boolean hintEnabled  = true;
+    private boolean hintVisible  = false;
+    private boolean scanlines    = true;
+    private boolean blockCursor  = true;
     private int     visibleLines;
     private int     visibleCols;
 
@@ -66,8 +83,29 @@ public class J2MEEditor extends Canvas
     private String  currentHint = "";
     private int     errorRow    = -1;
 
+    // =============================================
+    // v1.2: UNDO STACK
+    // =============================================
+    private static final int MAX_UNDO = 10;
+    private String[] undoCode   = new String[MAX_UNDO];
+    private int[]    undoRow    = new int[MAX_UNDO];
+    private int[]    undoCol    = new int[MAX_UNDO];
+    private int      undoHead   = 0; // next write pos
+    private int      undoCount  = 0; // how many stored
+    private int      undoSinceLastPush = 0;
+    private static final int UNDO_INTERVAL = 5;
+
+    // =============================================
+    // v1.2: CLIPBOARD (copy/paste)
+    // =============================================
+    private String clipboard = "";
+
+    // =============================================
+    // v1.2: EXTENDED ERROR PATTERNS
+    // =============================================
     // FIX: Made PUBLIC so J2MEIDE.java can access it
     public static final String[][] ERROR_PATTERNS = {
+        // -- ORIGINAL --
         {"System.out.println",
          "Tip: Use Alert or StringItem to show output in J2ME"},
         {"System.err",
@@ -128,6 +166,53 @@ public class J2MEEditor extends Canvas
          "Good: Enumeration is the iterator for CLDC 1.1"},
         {"setFullScreenMode",
          "Good: setFullScreenMode() supported in MIDP 2.0"},
+        {"getBytes()",
+         "Tip: getBytes() uses platform encoding"},
+        {"instanceof",
+         "Good: instanceof is supported in CLDC 1.1"},
+        {"vibrate(",
+         "Good: Display.vibrate() is MIDP 2.0 supported"},
+        {"platformRequest",
+         "Good: platformRequest() opens browser in MIDP"},
+        {"Math.abs",
+         "Good: Math.abs() is supported in CLDC 1.1"},
+        {"char[]",
+         "Good: char arrays are supported in CLDC 1.1"},
+        {"Integer.toString(",
+         "Good: Integer.toString() works in CLDC 1.1"},
+        // -- v1.2 NEW PATTERNS --
+        {"String +",
+         "Tip: Avoid String concat in loops; use StringBuffer.append()"},
+        {"new Thread",
+         "Tip: Threads use resources; prefer TimerTask for simple tasks"},
+        {"catch (Exception e)",
+         "Tip: Catch specific exceptions when possible (IOException etc)"},
+        {"Runtime.getRuntime().gc()",
+         "Tip: Manual gc() is usually ineffective in J2ME"},
+        {"new Image",
+         "Tip: Images consume memory; reuse Image objects when possible"},
+        {"while(true)",
+         "Tip: Infinite loops need Thread.sleep() to avoid freeze"},
+        {"null.",
+         "Warning: Potential NullPointerException on this line"},
+        {"connection.close",
+         "Good: Always close connections in a finally block"},
+        {".equals(",
+         "Good: Use .equals() for String comparison, not =="},
+        {"synchronized",
+         "Tip: Synchronization is heavy on limited devices; use sparingly"},
+        {"new int[",
+         "Tip: Large arrays consume heap; keep arrays small in J2ME"},
+        {"double ",
+         "Tip: double uses more memory; prefer float or int in J2ME"},
+        {"long ",
+         "Tip: long is supported but slower than int on some devices"},
+        {"println(",
+         "Tip: System.out not shown on device; use Alert for output"},
+        {"import java.util.logging",
+         "Tip: java.util.logging not in CLDC 1.1; use RMS for logs"},
+        {"throws Exception",
+         "Tip: Declare specific exceptions (IOException etc) not Exception"},
     };
 
     // --- Keywords ---
@@ -176,9 +261,11 @@ public class J2MEEditor extends Canvas
     private Command cmdSnippet;
     private Command cmdGoto;
     private Command cmdFind;
+    private Command cmdFindReplace;   // v1.2
     private Command cmdFindNext;
     private Command cmdFullScreen;
     private Command cmdDupLine;
+    private Command cmdDeleteLine;    // v1.2
     private Command cmdWordCount;
     private Command cmdNewLine;
     private Command cmdTextBoxMode;
@@ -186,6 +273,15 @@ public class J2MEEditor extends Canvas
     private Command cmdHome;
     private Command cmdEnd;
     private Command cmdSaveSnippet;
+    private Command cmdCommentLine;
+    private Command cmdBlockComment;  // v1.2
+    private Command cmdToggleScanline;
+    private Command cmdMySnippets;
+    private Command cmdUndo;          // v1.2
+    private Command cmdCopyLine;      // v1.2
+    private Command cmdPaste;         // v1.2
+    private Command cmdRenameProject; // v1.2
+    private Command cmdGenTest;       // v1.2
 
     // =============================================
     // Constructor
@@ -214,45 +310,72 @@ public class J2MEEditor extends Canvas
     }
 
     private void buildCommands() {
-        cmdSave        = new Command("Save",
+        cmdSave          = new Command("Save",
             Command.OK,   1);
-        cmdBack        = new Command("Back",
+        cmdBack          = new Command("Back",
             Command.BACK, 2);
-        cmdSnippet     = new Command("Snippet",
+        cmdSnippet       = new Command("Snippet",
             Command.ITEM, 3);
-        cmdGoto        = new Command("Go to Line",
+        cmdGoto          = new Command("Go to Line",
             Command.ITEM, 4);
-        cmdFind        = new Command("Find",
+        cmdFind          = new Command("Find",
             Command.ITEM, 5);
-        cmdFindNext    = new Command("Find Next",
+        cmdFindReplace   = new Command("Find & Replace",
             Command.ITEM, 6);
-        cmdFullScreen  = new Command("Toggle Toolbar",
+        cmdFindNext      = new Command("Find Next",
             Command.ITEM, 7);
-        cmdDupLine     = new Command("Duplicate Line",
+        cmdFullScreen    = new Command("Toggle Toolbar",
             Command.ITEM, 8);
-        cmdWordCount   = new Command("Word Count",
+        cmdDupLine       = new Command("Duplicate Line",
             Command.ITEM, 9);
-        cmdNewLine     = new Command("New Line",
+        cmdDeleteLine    = new Command("Delete Line",
             Command.ITEM, 10);
-        cmdTextBoxMode = new Command("Edit in TextBox",
+        cmdWordCount     = new Command("Word Count",
             Command.ITEM, 11);
-        cmdToggleHint  = new Command("Toggle Hints",
+        cmdNewLine       = new Command("New Line",
             Command.ITEM, 12);
-        cmdHome        = new Command("Line Start",
+        cmdTextBoxMode   = new Command("Edit in TextBox",
             Command.ITEM, 13);
-        cmdEnd         = new Command("Line End",
+        cmdToggleHint    = new Command("Toggle Hints",
             Command.ITEM, 14);
-        cmdSaveSnippet = new Command(
-            "Save as Snippet", Command.ITEM, 15);
+        cmdHome          = new Command("Line Start",
+            Command.ITEM, 15);
+        cmdEnd           = new Command("Line End",
+            Command.ITEM, 16);
+        cmdSaveSnippet   = new Command(
+            "Save as Snippet",  Command.ITEM, 17);
+        cmdCommentLine   = new Command(
+            "Comment Line (//)",Command.ITEM, 18);
+        cmdBlockComment  = new Command(
+            "Block Comment",    Command.ITEM, 19);
+        cmdToggleScanline= new Command(
+            "Toggle Scanlines", Command.ITEM, 20);
+        cmdMySnippets    = new Command(
+            "My Snippets",      Command.ITEM, 21);
+        cmdUndo          = new Command(
+            "Undo (key 4)",     Command.ITEM, 22);
+        cmdCopyLine      = new Command(
+            "Copy Line",        Command.ITEM, 23);
+        cmdPaste         = new Command(
+            "Paste",            Command.ITEM, 24);
+        cmdRenameProject = new Command(
+            "Rename Project",   Command.ITEM, 25);
+        cmdGenTest       = new Command(
+            "Generate Test MIDlet", Command.ITEM, 26);
 
         addCommand(cmdSave);
         addCommand(cmdBack);
+        addCommand(cmdUndo);
+        addCommand(cmdCopyLine);
+        addCommand(cmdPaste);
         addCommand(cmdSnippet);
         addCommand(cmdGoto);
         addCommand(cmdFind);
+        addCommand(cmdFindReplace);
         addCommand(cmdFindNext);
         addCommand(cmdFullScreen);
         addCommand(cmdDupLine);
+        addCommand(cmdDeleteLine);
         addCommand(cmdWordCount);
         addCommand(cmdNewLine);
         addCommand(cmdTextBoxMode);
@@ -260,6 +383,12 @@ public class J2MEEditor extends Canvas
         addCommand(cmdHome);
         addCommand(cmdEnd);
         addCommand(cmdSaveSnippet);
+        addCommand(cmdCommentLine);
+        addCommand(cmdBlockComment);
+        addCommand(cmdToggleScanline);
+        addCommand(cmdMySnippets);
+        addCommand(cmdRenameProject);
+        addCommand(cmdGenTest);
         setCommandListener(this);
     }
 
@@ -269,6 +398,7 @@ public class J2MEEditor extends Canvas
 
     public void loadCode(String code, String fname) {
         this.fileName = fname;
+        clearUndoStack();
         initDoc(code == null ? "" : code);
         modified    = false;
         findActive  = false;
@@ -289,6 +419,7 @@ public class J2MEEditor extends Canvas
 
     public void insertSnippetAtCursor(String snippet) {
         if (snippet == null) return;
+        pushUndo();
         insertText(snippet);
         repaint();
     }
@@ -307,6 +438,16 @@ public class J2MEEditor extends Canvas
     }
 
     public boolean isHintEnabled() { return hintEnabled; }
+
+    public void setScanlines(boolean on) {
+        scanlines = on; repaint();
+    }
+    public boolean isScanlines() { return scanlines; }
+
+    public void setBlockCursor(boolean on) {
+        blockCursor = on; repaint();
+    }
+    public boolean isBlockCursor() { return blockCursor; }
 
     // =============================================
     // Layout
@@ -368,6 +509,61 @@ public class J2MEEditor extends Canvas
     }
 
     // =============================================
+    // v1.2: UNDO STACK
+    // =============================================
+
+    private void clearUndoStack() {
+        undoHead  = 0;
+        undoCount = 0;
+        undoSinceLastPush = 0;
+    }
+
+    /** Push current state onto undo stack */
+    private void pushUndo() {
+        undoCode[undoHead] = getCode();
+        undoRow [undoHead] = curRow;
+        undoCol [undoHead] = curCol;
+        undoHead = (undoHead + 1) % MAX_UNDO;
+        if (undoCount < MAX_UNDO) undoCount++;
+        undoSinceLastPush = 0;
+    }
+
+    /**
+     * Auto-push every UNDO_INTERVAL edits so
+     * typing doesn't spam the stack.
+     */
+    private void maybePushUndo() {
+        undoSinceLastPush++;
+        if (undoSinceLastPush >= UNDO_INTERVAL) {
+            pushUndo();
+        }
+    }
+
+    private void doUndo() {
+        if (undoCount == 0) {
+            Alert a = new Alert("Undo",
+                "Nothing to undo.",
+                null, AlertType.INFO);
+            a.setTimeout(900);
+            display.setCurrent(a, this);
+            return;
+        }
+        undoHead = (undoHead - 1 + MAX_UNDO) % MAX_UNDO;
+        undoCount--;
+        String code = undoCode[undoHead];
+        int    row  = undoRow [undoHead];
+        int    col  = undoCol [undoHead];
+        initDoc(code);
+        curRow = Math.min(row, totalLines - 1);
+        curCol = Math.min(col,
+            lines[curRow].length());
+        scrollToCursor();
+        modified = true;
+        undoSinceLastPush = 0;
+        repaint();
+    }
+
+    // =============================================
     // Text editing
     // =============================================
 
@@ -380,6 +576,7 @@ public class J2MEEditor extends Canvas
     }
 
     private void insertChar(char c) {
+        maybePushUndo();
         lines[curRow].insert(curCol, c);
         curCol++;
         modified = true;
@@ -387,6 +584,7 @@ public class J2MEEditor extends Canvas
     }
 
     private void insertNewLine() {
+        maybePushUndo();
         String tail =
             lines[curRow].toString()
                 .substring(curCol);
@@ -411,7 +609,6 @@ public class J2MEEditor extends Canvas
         if (prev.length() > 0 &&
             prev.charAt(prev.length() - 1) == '{') {
             indent += 4;
-            // Auto-insert closing brace
             ensureCapacity();
             for (int i = totalLines;
                  i > curRow + 1; i--) {
@@ -436,6 +633,7 @@ public class J2MEEditor extends Canvas
     }
 
     private void deleteCharBack() {
+        maybePushUndo();
         if (curCol > 0) {
             lines[curRow].deleteCharAt(curCol - 1);
             curCol--;
@@ -456,6 +654,7 @@ public class J2MEEditor extends Canvas
     }
 
     private void duplicateLine() {
+        pushUndo();
         String text = lines[curRow].toString();
         ensureCapacity();
         for (int i = totalLines; i > curRow + 1; i--) {
@@ -468,7 +667,128 @@ public class J2MEEditor extends Canvas
     }
 
     // =============================================
-    // HINT / ERROR SYSTEM
+    // v1.2: DELETE CURRENT LINE
+    // =============================================
+    private void deleteCurrentLine() {
+        pushUndo();
+        if (totalLines == 1) {
+            lines[0] = new StringBuffer();
+            curCol   = 0;
+        } else {
+            for (int i = curRow;
+                 i < totalLines - 1; i++) {
+                lines[i] = lines[i + 1];
+            }
+            totalLines--;
+            if (curRow >= totalLines)
+                curRow = totalLines - 1;
+            curCol = Math.min(curCol,
+                lines[curRow].length());
+        }
+        modified = true;
+    }
+
+    // =============================================
+    // v1.2: COPY / PASTE
+    // =============================================
+
+    /** Copy entire current line to clipboard */
+    private void copyCurrentLine() {
+        clipboard = lines[curRow].toString();
+        Alert a = new Alert("Copied",
+            "Line " + (curRow + 1) + " copied.",
+            null, AlertType.CONFIRMATION);
+        a.setTimeout(900);
+        display.setCurrent(a, this);
+    }
+
+    /** Paste clipboard contents at cursor */
+    private void pasteClipboard() {
+        if (clipboard == null ||
+            clipboard.length() == 0) {
+            Alert a = new Alert("Paste",
+                "Clipboard is empty.",
+                null, AlertType.INFO);
+            a.setTimeout(900);
+            display.setCurrent(a, this);
+            return;
+        }
+        pushUndo();
+        insertText(clipboard);
+        scrollToCursor();
+        repaint();
+    }
+
+    // =============================================
+    // Comment: line (//) and block (/* */)
+    // =============================================
+
+    private void toggleCommentLine() {
+        pushUndo();
+        String text = lines[curRow].toString();
+        int leadingSpaces = 0;
+        while (leadingSpaces < text.length() &&
+               text.charAt(leadingSpaces) == ' ') {
+            leadingSpaces++;
+        }
+        String trimmed = text.substring(leadingSpaces);
+        StringBuffer newLine = new StringBuffer();
+        if (trimmed.startsWith("//")) {
+            for (int s = 0; s < leadingSpaces; s++)
+                newLine.append(' ');
+            newLine.append(trimmed.substring(2));
+            if (newLine.length() > leadingSpaces &&
+                newLine.charAt(leadingSpaces) == ' ')
+                newLine.deleteCharAt(leadingSpaces);
+        } else {
+            for (int s = 0; s < leadingSpaces; s++)
+                newLine.append(' ');
+            newLine.append("// ");
+            newLine.append(trimmed);
+        }
+        lines[curRow] = newLine;
+        curCol = Math.min(curCol,
+            lines[curRow].length());
+        modified = true;
+        checkHintForCurrentLine();
+    }
+
+    /**
+     * v1.2: Wrap current line with block comment
+     * /* ... * /  (or remove if already wrapped)
+     */
+   private void toggleBlockComment() {
+    pushUndo();
+    String text    = lines[curRow].toString();
+    String trimmed = text.trim();
+    
+    if (trimmed.startsWith("/*") && trimmed.endsWith("*/")) {
+        // Remove block comment wrapper
+        int start = text.indexOf('/'); // Find first '/'
+        // Search for the last '/' character
+        int end   = text.lastIndexOf('/'); 
+        
+        if (start != -1 && end > start + 2) {
+            // Check if it's specifically "/*" and "*/"
+            if (text.charAt(start + 1) == '*' && text.charAt(end - 1) == '*') {
+                String inner = text.substring(start + 2, end - 1).trim();
+                lines[curRow] = new StringBuffer(inner);
+            }
+        }
+    } else {
+        // Add block comment wrapper
+        StringBuffer nb = new StringBuffer();
+        nb.append("/* ");
+        nb.append(trimmed);
+        nb.append(" */");
+        lines[curRow] = nb;
+    }
+    curCol = Math.min(curCol, lines[curRow].length());
+    modified = true;
+}
+
+    // =============================================
+    // Hint system
     // =============================================
 
     private void checkHintForCurrentLine() {
@@ -536,7 +856,7 @@ public class J2MEEditor extends Canvas
     public void findNext() {
         if (findQuery == null ||
             findQuery.length() == 0) return;
-        String lower   = findQuery.toLowerCase();
+        String lower    = findQuery.toLowerCase();
         int    startRow =
             findActive ? findRow : curRow;
         int    startCol =
@@ -560,7 +880,6 @@ public class J2MEEditor extends Canvas
                 return;
             }
         }
-        // Wrap around
         for (int r = 0; r < startRow; r++) {
             String line =
                 lines[r].toString().toLowerCase();
@@ -581,6 +900,280 @@ public class J2MEEditor extends Canvas
     }
 
     // =============================================
+    // v1.2: FIND & REPLACE
+    // =============================================
+
+    private void showFindReplaceDialog() {
+        final TextField tfFind = new TextField(
+            "Find:", findQuery, 64, TextField.ANY);
+        final TextField tfRepl = new TextField(
+            "Replace with:", "", 64, TextField.ANY);
+        final Form form = new Form("Find & Replace");
+        form.append(tfFind);
+        form.append(tfRepl);
+        form.append(new StringItem("",
+            "Replace All replaces every\n" +
+            "occurrence in the file.\n"));
+
+        Command cmdRepl    = new Command(
+            "Replace All", Command.OK,   1);
+        Command cmdFindOne = new Command(
+            "Find Next",   Command.ITEM, 2);
+        Command back       = new Command(
+            "Back",        Command.BACK, 3);
+        form.addCommand(cmdRepl);
+        form.addCommand(cmdFindOne);
+        form.addCommand(back);
+        form.setCommandListener(
+            new CommandListener() {
+                public void commandAction(
+                        Command c, Displayable d) {
+                    String fq = tfFind.getString();
+                    String rq = tfRepl.getString();
+                    if (c.getCommandType() ==
+                            Command.OK) {
+                        if (fq.length() > 0) {
+                            findQuery = fq;
+                            int count =
+                                replaceAll(fq, rq);
+                            Alert a = new Alert(
+                                "Replace Done",
+                                count + " replacement(s)" +
+                                " made.",
+                                null,
+                                AlertType.CONFIRMATION);
+                            a.setTimeout(1800);
+                            display.setCurrent(
+                                a, J2MEEditor.this);
+                        } else {
+                            display.setCurrent(
+                                J2MEEditor.this);
+                        }
+                    } else if (c.getLabel()
+                            .equals("Find Next")) {
+                        findQuery  = fq;
+                        findActive = false;
+                        display.setCurrent(
+                            J2MEEditor.this);
+                        findNext();
+                    } else {
+                        display.setCurrent(
+                            J2MEEditor.this);
+                    }
+                }
+            });
+        display.setCurrent(form);
+    }
+
+    /**
+     * Replace all occurrences of findStr with
+     * replStr (case-insensitive search).
+     * Returns number of replacements made.
+     */
+    private int replaceAll(String findStr,
+                            String replStr) {
+        if (findStr == null ||
+            findStr.length() == 0) return 0;
+        pushUndo();
+        String lower = findStr.toLowerCase();
+        int count    = 0;
+        for (int r = 0; r < totalLines; r++) {
+            String   line = lines[r].toString();
+            String   low  = line.toLowerCase();
+            int      pos  = low.indexOf(lower);
+            if (pos == -1) continue;
+            StringBuffer nb = new StringBuffer();
+            int idx = 0;
+            while (pos != -1) {
+                nb.append(line.substring(idx, pos));
+                nb.append(replStr);
+                idx = pos + findStr.length();
+                pos = low.indexOf(lower, idx);
+                count++;
+            }
+            nb.append(line.substring(idx));
+            lines[r] = nb;
+        }
+        if (count > 0) {
+            modified   = true;
+            findActive = false;
+        }
+        return count;
+    }
+
+    // =============================================
+    // v1.2: RENAME PROJECT (dialog)
+    // =============================================
+
+    private void showRenameProjectDialog() {
+        if (fm == null) return;
+        String curName =
+            fm.replaceToken(fileName, ".java", "");
+        final TextField tf = new TextField(
+            "New Name:", curName, 40, TextField.ANY);
+        final Form form = new Form("Rename Project");
+        form.append(new StringItem("Current:",
+            " " + curName + "\n\n"));
+        form.append(tf);
+        form.append(new StringItem("",
+            "\nRenames the project folder\n" +
+            "and the main .java file.\n"));
+        Command ok   = new Command(
+            "Rename", Command.OK,   1);
+        Command back = new Command(
+            "Back",   Command.BACK, 2);
+        form.addCommand(ok);
+        form.addCommand(back);
+        form.setCommandListener(
+            new CommandListener() {
+                public void commandAction(
+                        Command c, Displayable d) {
+                    if (c.getCommandType() ==
+                            Command.OK) {
+                        String newName =
+                            tf.getString().trim();
+                        if (newName.length() > 0 &&
+                            fm != null) {
+                            String oldName = fm
+                                .replaceToken(
+                                fileName,".java","");
+                            boolean ok =
+                                fm.renameProject(
+                                    oldName, newName);
+                            if (ok) {
+                                fileName =
+                                    newName + ".java";
+                            }
+                            Alert a = new Alert(
+                                ok ? "Renamed" : "Error",
+                                ok ? "Project renamed to\n"
+                                     + newName :
+                                     "Rename failed.",
+                                null,
+                                ok
+                                ? AlertType.CONFIRMATION
+                                : AlertType.ERROR);
+                            a.setTimeout(1800);
+                            display.setCurrent(
+                                a, J2MEEditor.this);
+                            return;
+                        }
+                    }
+                    display.setCurrent(J2MEEditor.this);
+                }
+            });
+        display.setCurrent(form);
+    }
+
+    // =============================================
+    // v1.2: GENERATE TEST MIDLET
+    // =============================================
+
+    private void showGenTestDialog() {
+        if (fm == null) return;
+        String curName =
+            fm.replaceToken(fileName, ".java", "");
+        String testName = "Test_" + curName;
+        final Form form = new Form("Generate Test MIDlet");
+        form.append(new StringItem("",
+            "Creates a new project:\n" +
+            testName + "\n\n" +
+            "It wraps your code in a\n" +
+            "minimal test harness that\n" +
+            "shows output in an Alert.\n\n" +
+            "Transfer + compile on PC\n" +
+            "with Sun WTK to run.\n"));
+        Command ok   = new Command(
+            "Generate", Command.OK,   1);
+        Command back = new Command(
+            "Back",     Command.BACK, 2);
+        form.addCommand(ok);
+        form.addCommand(back);
+        form.setCommandListener(
+            new CommandListener() {
+                public void commandAction(
+                        Command c, Displayable d) {
+                    if (c.getCommandType() ==
+                            Command.OK) {
+                        generateTestMIDlet();
+                    } else {
+                        display.setCurrent(
+                            J2MEEditor.this);
+                    }
+                }
+            });
+        display.setCurrent(form);
+    }
+
+    private void generateTestMIDlet() {
+        String curName =
+            fm.replaceToken(fileName, ".java", "");
+        String testName = "Test_" + curName;
+        StringBuffer sb = new StringBuffer();
+        sb.append("import javax.microedition.lcdui.*;\n");
+        sb.append("import javax.microedition.midlet.*;\n\n");
+        sb.append("/**\n");
+        sb.append(" * Auto-generated test harness\n");
+        sb.append(" * for: "); sb.append(curName);
+        sb.append("\n * Generated by J2ME IDE v1.2\n");
+        sb.append(" */\n");
+        sb.append("public class "); sb.append(testName);
+        sb.append(" extends MIDlet\n");
+        sb.append("        implements CommandListener {\n\n");
+        sb.append("    private Display display;\n");
+        sb.append("    private Form    form;\n\n");
+        sb.append("    public void startApp() {\n");
+        sb.append("        display =\n");
+        sb.append("            Display.getDisplay(this);\n");
+        sb.append("        form = new Form(\n");
+        sb.append("            \"Test: ");
+        sb.append(curName); sb.append("\");\n");
+        sb.append("        form.append(\n");
+        sb.append("            new StringItem(\n");
+        sb.append("            \"Status:\",\n");
+        sb.append("            \" Running...\\n\"));\n");
+        sb.append("        // TODO: call your code here\n");
+        sb.append("        // e.g. new ");
+        sb.append(curName); sb.append("();\n");
+        sb.append("        form.append(\n");
+        sb.append("            new StringItem(\n");
+        sb.append("            \"Result:\",\n");
+        sb.append("            \" OK\\n\"));\n");
+        sb.append("        Command cmdExit =\n");
+        sb.append("            new Command(\n");
+        sb.append("            \"Exit\",");
+        sb.append("Command.EXIT, 1);\n");
+        sb.append("        form.addCommand(cmdExit);\n");
+        sb.append("        form.setCommandListener(this);\n");
+        sb.append("        display.setCurrent(form);\n");
+        sb.append("    }\n\n");
+        sb.append("    public void pauseApp() {}\n");
+        sb.append("    public void destroyApp(");
+        sb.append("boolean u) {}\n\n");
+        sb.append("    public void commandAction(\n");
+        sb.append("            Command c,");
+        sb.append(" Displayable d) {\n");
+        sb.append("        destroyApp(false);\n");
+        sb.append("        notifyDestroyed();\n");
+        sb.append("    }\n}\n");
+
+        String code   = sb.toString();
+        String vendor = "DASH ANIMATION V2";
+        boolean ok    =
+            fm.createProject(testName, code, vendor);
+        Alert a = new Alert(
+            ok ? "Test Created" : "Error",
+            ok ? "Project created:\n" + testName +
+                 "\n\nOpen it from 'Open Project'.\n" +
+                 "Transfer to PC and compile." :
+                 "Could not create test project.",
+            null,
+            ok ? AlertType.CONFIRMATION : AlertType.ERROR);
+        a.setTimeout(Alert.FOREVER);
+        display.setCurrent(a, this);
+    }
+
+    // =============================================
     // TextBox mode (Key 5)
     // =============================================
 
@@ -588,9 +1181,7 @@ public class J2MEEditor extends Canvas
         String currentCode = getCode();
         final TextBox tb = new TextBox(
             "Edit - " + fileName,
-            currentCode,
-            32000,
-            TextField.ANY);
+            currentCode, 32000, TextField.ANY);
 
         Command done     = new Command("Done",
             Command.OK,   1);
@@ -615,6 +1206,7 @@ public class J2MEEditor extends Canvas
                 if (c.getCommandType() ==
                         Command.OK) {
                     String newCode = tb.getString();
+                    pushUndo();
                     initDoc(newCode);
                     modified = true;
                     checkHintForCurrentLine();
@@ -849,14 +1441,17 @@ public class J2MEEditor extends Canvas
         }
         if (keyCode == Canvas.KEY_NUM1) {
             curCol = 0;
-            scrollToCursor();
-            repaint();
+            scrollToCursor(); repaint();
             return;
         }
         if (keyCode == Canvas.KEY_NUM3) {
             curCol = lines[curRow].length();
-            scrollToCursor();
-            repaint();
+            scrollToCursor(); repaint();
+            return;
+        }
+        if (keyCode == Canvas.KEY_NUM4) {
+            // v1.2: Undo key
+            doUndo();
             return;
         }
         if (keyCode == Canvas.KEY_NUM7) {
@@ -879,21 +1474,21 @@ public class J2MEEditor extends Canvas
             repaint();
             return;
         }
+        if (keyCode == Canvas.KEY_NUM6) {
+            toggleCommentLine();
+            scrollToCursor(); repaint();
+            return;
+        }
         if (keyCode == Canvas.KEY_NUM0) {
             insertNewLine();
-            scrollToCursor();
-            repaint();
+            scrollToCursor(); repaint();
             return;
         }
         if (keyCode == Canvas.KEY_NUM2) {
-            moveLineUp();
-            repaint();
-            return;
+            moveLineUp();   repaint(); return;
         }
         if (keyCode == Canvas.KEY_NUM8) {
-            moveLineDown();
-            repaint();
-            return;
+            moveLineDown(); repaint(); return;
         }
         if (keyCode == Canvas.KEY_STAR) {
             hintEnabled = !hintEnabled;
@@ -902,8 +1497,7 @@ public class J2MEEditor extends Canvas
                 errorRow    = -1;
                 currentHint = "";
             }
-            recalcLayout();
-            repaint();
+            recalcLayout(); repaint();
             return;
         }
         if (keyCode == Canvas.KEY_POUND) {
@@ -944,6 +1538,7 @@ public class J2MEEditor extends Canvas
 
     private void moveLineUp() {
         if (curRow <= 0) return;
+        pushUndo();
         StringBuffer tmp  = lines[curRow];
         lines[curRow]     = lines[curRow - 1];
         lines[curRow - 1] = tmp;
@@ -953,6 +1548,7 @@ public class J2MEEditor extends Canvas
 
     private void moveLineDown() {
         if (curRow >= totalLines - 1) return;
+        pushUndo();
         StringBuffer tmp  = lines[curRow];
         lines[curRow]     = lines[curRow + 1];
         lines[curRow + 1] = tmp;
@@ -1008,7 +1604,7 @@ public class J2MEEditor extends Canvas
     }
 
     // =============================================
-    // Word Count
+    // Word Count / Info
     // =============================================
 
     private void showWordCount() {
@@ -1031,12 +1627,17 @@ public class J2MEEditor extends Canvas
             "Cur Line: " + (curRow+1) + "\n" +
             "Cur Col : " + (curCol+1) + "\n" +
             "Modified: " + (modified?"Yes":"No") +
-            "\n\nKey shortcuts:\n" +
-            "5=TextBox  0=NewLine\n" +
-            "1=Home     3=End\n" +
-            "7=PageUp   9=PageDown\n" +
-            "2=LineUp   8=LineDown\n" +
-            "*=Hints    #=FindNext",
+            "\nUndo lvls: " + undoCount + "\n" +
+            "Clipboard: " +
+            (clipboard.length() > 0 ?
+             clipboard.length()+" chars" : "empty") +
+            "\n\n--- v1.2 Key Map ---\n" +
+            "4=Undo     5=TextBox\n" +
+            "0=NewLine  1=Home  3=End\n" +
+            "6=Comment  7=PageUp\n" +
+            "9=PageDn   2=LineUp\n" +
+            "8=LineDown *=Hints\n" +
+            "#=FindNext",
             null, AlertType.INFO);
         a.setTimeout(Alert.FOREVER);
         display.setCurrent(a, this);
@@ -1068,10 +1669,22 @@ public class J2MEEditor extends Canvas
         g.fillRect(0, topOff, w,
             h - statusH - topOff);
 
+        if (scanlines) {
+            g.setColor(COL_SCANLINE);
+            int codeH = h - statusH - topOff;
+            for (int sy = topOff + 1;
+                 sy < topOff + codeH; sy += 2) {
+                g.drawLine(0, sy, w, sy);
+            }
+        }
+
         if (!fullScreen) {
             g.setColor(COL_GUTTER);
             g.fillRect(0, topOff, gw,
                 h - statusH - topOff);
+            g.setColor(COL_PIXEL_ACCENT);
+            g.drawLine(gw, topOff, gw,
+                h - statusH);
         }
 
         g.setFont(fontMono);
@@ -1101,16 +1714,27 @@ public class J2MEEditor extends Canvas
             }
 
             if (!fullScreen) {
-                if (hintEnabled &&
-                    docRow == errorRow) {
+                if (docRow == curRow) {
+                    g.setColor(COL_PIXEL_ACCENT);
+                    g.drawChar('>',
+                        1, y,
+                        Graphics.TOP|Graphics.LEFT);
+                } else if (hintEnabled &&
+                           docRow == errorRow) {
                     g.setColor(COL_ERR_TXT);
-                    g.drawChar('!', 2, y,
+                    g.drawChar('!',
+                        2, y,
                         Graphics.TOP|Graphics.LEFT);
                 }
                 g.setColor(
-                    (hintEnabled && docRow==errorRow)
-                    ? COL_ERR_TXT : COL_GUTTER_TXT);
-                String ln = String.valueOf(docRow+1);
+                    docRow == curRow
+                    ? COL_PIXEL_ACCENT
+                    : (hintEnabled &&
+                       docRow == errorRow)
+                    ? COL_ERR_TXT
+                    : COL_GUTTER_TXT);
+                String ln =
+                    String.valueOf(docRow + 1);
                 int lnX = gw -
                     fontMono.stringWidth(ln) - 4;
                 g.drawString(ln, lnX, y,
@@ -1123,8 +1747,25 @@ public class J2MEEditor extends Canvas
             if (docRow == curRow) {
                 int cx = gw +
                     (curCol - scrollCol) * charW;
-                g.setColor(COL_CURSOR);
-                g.drawLine(cx, y, cx, y+charH-1);
+                if (blockCursor) {
+                    g.setColor(COL_CURSOR);
+                    g.fillRect(cx, y, charW, charH);
+                    if (curCol <
+                            lines[curRow].length()) {
+                        g.setColor(COL_BG);
+                        g.setFont(fontMono);
+                        g.drawChar(
+                            lines[curRow].charAt(
+                                curCol),
+                            cx, y,
+                            Graphics.TOP|
+                            Graphics.LEFT);
+                    }
+                } else {
+                    g.setColor(COL_CURSOR);
+                    g.drawLine(cx, y,
+                        cx, y + charH - 1);
+                }
             }
         }
 
@@ -1134,16 +1775,16 @@ public class J2MEEditor extends Canvas
     private void drawToolbar(Graphics g, int w) {
         g.setColor(COL_TOOLBAR_BG);
         g.fillRect(0, 0, w, toolbarH);
-        g.setColor(0x007ACC);
-        g.fillRect(0, toolbarH-1, w, 1);
+        g.setColor(COL_PIXEL_ACCENT);
+        g.drawLine(0, toolbarH - 1, w, toolbarH - 1);
         g.setColor(COL_TOOLBAR_TXT);
         g.setFont(fontSmall);
         String info =
-            " " + fileName +
+            " [px] " + fileName +
             (modified ? "*" : " ") +
-            " Ln:" + (curRow+1) +
-            " Col:" + (curCol+1) +
-            " [5=TB]";
+            " L:" + (curRow + 1) +
+            " C:" + (curCol + 1) +
+            " [4=undo 6=//]";
         g.drawString(info, 0, 0,
             Graphics.TOP|Graphics.LEFT);
     }
@@ -1151,20 +1792,26 @@ public class J2MEEditor extends Canvas
     private void drawHintBar(Graphics g,
                               int w, int yOff) {
         boolean isErr = currentHint.startsWith("Tip:");
-        g.setColor(isErr ? 0x3D1515 : 0x1A2E1A);
+        g.setColor(isErr ? 0x1A0000 : 0x001A00);
         g.fillRect(0, yOff, w, hintBarH);
         g.setColor(isErr ? COL_ERR_TXT : COL_HINT_TXT);
-        g.fillRect(0, yOff, 2, hintBarH);
+        g.fillRect(0, yOff, 3, hintBarH);
+        g.setColor(COL_PIXEL_ACCENT);
+        g.fillRect(0, yOff, 3, 2);
+        g.setColor(isErr ? COL_ERR_TXT : COL_HINT_TXT);
         g.setFont(fontSmall);
-        String hint = currentHint;
-        int    maxW = w - 6;
-        while (hint.length() > 4 &&
+        String prefix = isErr ? "[!] " : "[>] ";
+        String hint   = prefix +
+            currentHint.substring(
+                currentHint.indexOf(':') + 1).trim();
+        int maxW = w - 8;
+        while (hint.length() > 6 &&
                fontSmall.stringWidth(hint) > maxW) {
             hint = hint.substring(
-                0, hint.length()-4) + "...";
+                0, hint.length() - 4) + "...";
         }
-        g.drawString(hint, 4, yOff,
-            Graphics.TOP|Graphics.LEFT);
+        g.drawString(hint, 6, yOff,
+            Graphics.TOP | Graphics.LEFT);
     }
 
     private void drawSyntaxLine(Graphics g,
@@ -1294,17 +1941,30 @@ public class J2MEEditor extends Canvas
         int barY = h - statusH;
         g.setColor(COL_STATUS_BG);
         g.fillRect(0, barY, w, statusH);
+        g.setColor(COL_PIXEL_ACCENT);
+        g.drawLine(0, barY, w, barY);
+        g.setColor(COL_CURSOR);
+        g.fillRect(0, barY + 2, 3, 3);
+        g.fillRect(w - 3, barY + 2, 3, 3);
         g.setColor(COL_STATUS_TXT);
         g.setFont(fontSmall);
-        String hm = hintEnabled ? "H+" : "H-";
+        String hm  = hintEnabled ? "H+" : "H-";
+        String sc  = scanlines   ? "CRT" : "---";
+        String cur = blockCursor ? "BLK" : "LIN";
+        String undoInd = undoCount > 0 ?
+            "U" + undoCount : "U0";
         String status =
-            " " + (modified ? "* " : "") +
-            fileName +
-            " |" + (curRow+1) + ":" + (curCol+1) +
+            " " + (modified ? "[*]" : "[ ]") +
+            " " + fileName +
+            " |" + (curRow + 1) +
+            ":" + (curCol + 1) +
             " |" + hm +
-            (fullScreen ? "[F]" : "") +
-            " |DASH V2";
-        g.drawString(status, 0, barY,
+            " |" + sc +
+            " |" + cur +
+            " |" + undoInd +
+            (fullScreen ? " |FS" : "") +
+            " [PX v1.2]";
+        g.drawString(status, 0, barY + 2,
             Graphics.TOP|Graphics.LEFT);
     }
 
@@ -1355,6 +2015,12 @@ public class J2MEEditor extends Canvas
             } else {
                 goBack();
             }
+        } else if (c == cmdUndo) {
+            doUndo();
+        } else if (c == cmdCopyLine) {
+            copyCurrentLine();
+        } else if (c == cmdPaste) {
+            pasteClipboard();
         } else if (c == cmdSnippet) {
             if (midlet instanceof J2MEIDE) {
                 ((J2MEIDE) midlet)
@@ -1364,21 +2030,23 @@ public class J2MEEditor extends Canvas
             showGotoLineDialog();
         } else if (c == cmdFind) {
             showFindDialog();
+        } else if (c == cmdFindReplace) {
+            showFindReplaceDialog();
         } else if (c == cmdFindNext) {
             findNext();
         } else if (c == cmdFullScreen) {
             fullScreen = !fullScreen;
-            recalcLayout();
-            repaint();
+            recalcLayout(); repaint();
         } else if (c == cmdDupLine) {
-            duplicateLine();
-            repaint();
+            duplicateLine(); repaint();
+        } else if (c == cmdDeleteLine) {
+            deleteCurrentLine();
+            scrollToCursor(); repaint();
         } else if (c == cmdWordCount) {
             showWordCount();
         } else if (c == cmdNewLine) {
             insertNewLine();
-            scrollToCursor();
-            repaint();
+            scrollToCursor(); repaint();
         } else if (c == cmdTextBoxMode) {
             activateTextBoxMode();
         } else if (c == cmdToggleHint) {
@@ -1388,18 +2056,32 @@ public class J2MEEditor extends Canvas
                 errorRow    = -1;
                 currentHint = "";
             }
-            recalcLayout();
-            repaint();
+            recalcLayout(); repaint();
         } else if (c == cmdHome) {
             curCol = 0;
-            scrollToCursor();
-            repaint();
+            scrollToCursor(); repaint();
         } else if (c == cmdEnd) {
             curCol = lines[curRow].length();
-            scrollToCursor();
-            repaint();
+            scrollToCursor(); repaint();
         } else if (c == cmdSaveSnippet) {
             showSaveAsSnippetDialog();
+        } else if (c == cmdCommentLine) {
+            toggleCommentLine();
+            scrollToCursor(); repaint();
+        } else if (c == cmdBlockComment) {
+            toggleBlockComment();
+            scrollToCursor(); repaint();
+        } else if (c == cmdToggleScanline) {
+            scanlines = !scanlines; repaint();
+        } else if (c == cmdMySnippets) {
+            if (midlet instanceof J2MEIDE) {
+                ((J2MEIDE) midlet)
+                    .showMySnippets(true);
+            }
+        } else if (c == cmdRenameProject) {
+            showRenameProjectDialog();
+        } else if (c == cmdGenTest) {
+            showGenTestDialog();
         }
     }
 
@@ -1447,9 +2129,6 @@ public class J2MEEditor extends Canvas
     private void doSave() {
         if (fm == null) return;
         String code = getCode();
-        // FIX: Use replaceToken instead of
-        // String.replace(String,String)
-        // which is not available in CLDC 1.1
         String projName =
             fm.replaceToken(fileName, ".java", "");
         String base = fm.getProjectBasePath();

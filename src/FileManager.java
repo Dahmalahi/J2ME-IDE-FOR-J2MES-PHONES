@@ -7,7 +7,8 @@ import java.util.Enumeration;
 /**
  * FileManager.java
  * JSR-75 File System handler for J2ME IDE
- * Vendor: DASH ANIMATION V2
+ * Version : 1.1 PIXEL EDITION
+ * Vendor  : DASH ANIMATION V2
  */
 public class FileManager {
 
@@ -306,6 +307,80 @@ public class FileManager {
         } catch (Exception e) {
             return false;
         } finally { closeFC(fc); }
+    }
+
+    // =============================================
+    // PROJECT MANAGEMENT (v1.1)
+    // =============================================
+
+    /**
+     * Recursively delete all files inside a dir,
+     * then delete the dir itself.
+     */
+    public boolean deleteProject(String name) {
+        String base = getProjectBasePath();
+        if (base == null) return false;
+        String projRoot = base + name + "/";
+        return deleteRecursive(projRoot);
+    }
+
+    private boolean deleteRecursive(String dirUrl) {
+        FileConnection fc = null;
+        try {
+            fc = (FileConnection) Connector.open(
+                dirUrl, Connector.READ_WRITE);
+            if (!fc.exists()) return true;
+            if (fc.isDirectory()) {
+                Enumeration en = fc.list("*", false);
+                // collect all entries first
+                Vector entries = new Vector();
+                while (en.hasMoreElements()) {
+                    entries.addElement(
+                        (String) en.nextElement());
+                }
+                closeFC(fc);
+                fc = null;
+                // recurse into each child
+                for (int i = 0;
+                     i < entries.size(); i++) {
+                    String child =
+                        (String) entries.elementAt(i);
+                    deleteRecursive(dirUrl + child);
+                }
+                // re-open dir and delete it
+                fc = (FileConnection)
+                    Connector.open(
+                    dirUrl, Connector.READ_WRITE);
+                fc.delete();
+            } else {
+                fc.delete();
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        } finally { closeFC(fc); }
+    }
+
+    /**
+     * Rename a project's root directory.
+     * (moves source file too if same name)
+     */
+    public boolean renameProject(String oldName,
+                                  String newName) {
+        String base = getProjectBasePath();
+        if (base == null) return false;
+        // Read old source
+        String oldSrc = base + oldName +
+            "/" + SRC_DIR + oldName + ".java";
+        String code   = readFile(oldSrc);
+        if (code == null) code = "";
+        // Create new project scaffold
+        String vendor = "DASH ANIMATION V2";
+        if (!createProject(newName, code, vendor))
+            return false;
+        // Delete old project
+        deleteProject(oldName);
+        return true;
     }
 
     // =============================================
